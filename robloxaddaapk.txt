@@ -1,0 +1,1280 @@
+// ═══ src/models/User.js ═══
+const mongoose = require('mongoose');
+
+// Define User schema
+const UserSchema = new mongoose.Schema({
+    id: { type: String, required: true, unique: true },
+    username: { type: String, required: true, unique: true },
+    email: { type: String, required: true, unique: true },
+    passwordHash: { type: String, required: true },
+    createdAt: { type: Date, default: Date.now, required: true },
+    updatedAt: { type: Date, default: Date.now, required: true }
+});
+
+// Add pre-save hook to update updatedAt field
+UserSchema.pre('save', function(next) {
+    this.updatedAt = Date.now();
+    next();
+});
+
+// Export the User model
+module.exports = mongoose.model('User', UserSchema);
+
+// ═══ src/controllers/userController.js ═══
+const User = require('../models/User');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+
+// Register User
+exports.register = async (req, res) => {
+    const { id, username, email, password } = req.body;
+    try {
+        // Hash password
+        const passwordHash = await bcrypt.hash(password, 10);
+        const newUser = new User({ id, username, email, passwordHash });
+        await newUser.save();
+        res.status(201).json({ message: 'User registered successfully' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Login User
+exports.login = async (req, res) => {
+    const { username, password } = req.body;
+    try {
+        const user = await User.findOne({ username });
+        if (!user) return res.status(404).json({ message: 'User not found' });
+        const isValid = await bcrypt.compare(password, user.passwordHash);
+        if (!isValid) return res.status(401).json({ message: 'Invalid credentials' });
+        const token = jwt.sign({ id: user.id }, 'secret', { expiresIn: '1h' });
+        res.json({ token });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// ═══ src/routes/userRoutes.js ═══
+const express = require('express');
+const { register, login } = require('../controllers/userController');
+
+const router = express.Router();
+
+// POST /api/users/register
+router.post('/register', register);
+
+// POST /api/users/login
+router.post('/login', login);
+
+module.exports = router;
+
+// ═══ src/middleware/authMiddleware.js ═══
+const jwt = require('jsonwebtoken');
+
+const auth = (req, res, next) => {
+    const token = req.headers['authorization']?.split(' ')[1];
+    if (!token) return res.status(401).json({ message: 'Access denied' });
+    try {
+        const verified = jwt.verify(token, 'secret');
+        req.user = verified; // Attach user data to request
+        next();
+    } catch (error) {
+        res.status(400).json({ message: 'Invalid token' });
+    }
+};
+
+module.exports = auth;
+
+// ═══ src/components/UserRegistrationForm.jsx ═══
+import React, { useState } from 'react';
+import axios from 'axios';
+
+const UserRegistrationForm = () => {
+    const [id, setId] = useState('');
+    const [username, setUsername] = useState('');
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+
+    const handleRegister = async (e) => {
+        e.preventDefault();
+        try {
+            const response = await axios.post('/api/users/register', { id, username, email, password });
+            alert(response.data.message);
+        } catch (error) {
+            alert('Error: ' + error.response.data.error);
+        }
+    };
+
+    return (
+        <form onSubmit={handleRegister} className="space-y-4">
+            <input 
+                type="text" 
+                placeholder="ID" 
+                value={id} 
+                onChange={(e) => setId(e.target.value)} 
+                className="border p-2 rounded"
+                required
+            />
+            <input 
+                type="text" 
+                placeholder="Username" 
+                value={username} 
+                onChange={(e) => setUsername(e.target.value)} 
+                className="border p-2 rounded"
+                required
+            />
+            <input 
+                type="email" 
+                placeholder="Email" 
+                value={email} 
+                onChange={(e) => setEmail(e.target.value)} 
+                className="border p-2 rounded"
+                required
+            />
+            <input 
+                type="password" 
+                placeholder="Password" 
+                value={password} 
+                onChange={(e) => setPassword(e.target.value)} 
+                className="border p-2 rounded"
+                required
+            />
+            <button type="submit" className="bg-blue-500 text-white p-2 rounded">Register</button>
+        </form>
+    );
+};
+
+export default UserRegistrationForm;
+
+// ═══ src/components/UserLoginForm.jsx ═══
+import React, { useState } from 'react';
+import axios from 'axios';
+
+const UserLoginForm = () => {
+    const [username, setUsername] = useState('');
+    const [password, setPassword] = useState('');
+
+    const handleLogin = async (e) => {
+        e.preventDefault();
+        try {
+            const response = await axios.post('/api/users/login', { username, password });
+            localStorage.setItem('token', response.data.token); // Save token to localStorage
+            alert('Login successful!');
+        } catch (error) {
+            alert('Error: ' + error.response.data.message);
+        }
+    };
+
+    return (
+        <form onSubmit={handleLogin} className="space-y-4">
+            <input 
+                type="text" 
+                placeholder="Username" 
+                value={username} 
+                onChange={(e) => setUsername(e.target.value)} 
+                className="border p-2 rounded"
+                required
+            />
+            <input 
+                type="password" 
+                placeholder="Password" 
+                value={password} 
+                onChange={(e) => setPassword(e.target.value)} 
+                className="border p-2 rounded"
+                required
+            />
+            <button type="submit" className="bg-blue-500 text-white p-2 rounded">Login</button>
+        </form>
+    );
+};
+
+export default UserLoginForm;
+
+// ═══ src/App.jsx ═══
+import React from 'react';
+import UserRegistrationForm from './components/UserRegistrationForm';
+import UserLoginForm from './components/UserLoginForm';
+
+const App = () => {
+    return (
+        <div className="flex flex-col items-center justify-center h-screen space-y-10">
+            <h1 className="text-3xl font-bold">User Authentication</h1>
+            <UserRegistrationForm />
+            <UserLoginForm />
+        </div>
+    );
+};
+
+export default App;
+
+// ═══ package.json ═══
+{
+  "name": "project-blueprint",
+  "version": "1.0.0",
+  "description": "Project Blueprint for User Authentication",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "express": "^4.17.1",
+    "mongoose": "^5.11.15",
+    "bcrypt": "^5.0.1",
+    "jsonwebtoken": "^8.5.1",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.7"
+  }
+}
+
+// ═══ src/models/User.js ═══
+const mongoose = require('mongoose');
+
+const userSchema = new mongoose.Schema({
+    id: { type: String, required: true, unique: true },
+    username: { type: String, required: true, unique: true },
+    email: { type: String, required: true, unique: true },
+    passwordHash: { type: String, required: true },
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now }
+});
+
+// Middleware to update the updatedAt field on every save
+userSchema.pre('save', function(next) {
+    this.updatedAt = Date.now();
+    next();
+});
+
+module.exports = mongoose.model('User', userSchema);
+
+// ═══ src/models/Game.js ═══
+const mongoose = require('mongoose');
+
+const gameSchema = new mongoose.Schema({
+    id: { type: String, required: true, unique: true },
+    ownerId: { type: String, required: true },
+    title: { type: String, required: true },
+    description: { type: String, required: false },
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now }
+});
+
+// Middleware to update the updatedAt field on every save
+gameSchema.pre('save', function(next) {
+    this.updatedAt = Date.now();
+    next();
+});
+
+module.exports = mongoose.model('Game', gameSchema);
+
+// ═══ src/models/GameInstance.js ═══
+const mongoose = require('mongoose');
+
+const gameInstanceSchema = new mongoose.Schema({
+    id: { type: String, required: true, unique: true },
+    gameId: { type: String, required: true },
+    hostId: { type: String, required: true },
+    playerCount: { type: Number, default: 0 },
+    createdAt: { type: Date, default: Date.now }
+});
+
+module.exports = mongoose.model('GameInstance', gameInstanceSchema);
+
+// ═══ src/models/PlayerStatistics.js ═══
+const mongoose = require('mongoose');
+
+const playerStatisticsSchema = new mongoose.Schema({
+    id: { type: String, required: true, unique: true },
+    userId: { type: String, required: true },
+    gameId: { type: String, required: true },
+    score: { type: Number, default: 0 },
+    createdAt: { type: Date, default: Date.now }
+});
+
+module.exports = mongoose.model('PlayerStatistics', playerStatisticsSchema);
+
+// ═══ src/routes/userRoutes.js ═══
+const express = require('express');
+const router = express.Router();
+const User = require('../models/User');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+
+// Registration route
+router.post('/register', async (req, res) => {
+    const { username, email, password } = req.body;
+    const passwordHash = await bcrypt.hash(password, 10);
+    const user = new User({ id: new mongoose.Types.ObjectId().toString(), username, email, passwordHash });
+    try {
+        await user.save();
+        res.status(201).json({ message: 'User registered successfully!' });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+// Login route
+router.post('/login', async (req, res) => {
+    const { email, password } = req.body;
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ error: 'User not found!' });
+
+    const isMatch = await bcrypt.compare(password, user.passwordHash);
+    if (!isMatch) return res.status(401).json({ error: 'Invalid credentials!' });
+
+    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    res.json({ token });
+});
+
+module.exports = router;
+
+// ═══ src/routes/gameRoutes.js ═══
+const express = require('express');
+const router = express.Router();
+const Game = require('../models/Game');
+
+// Fetch all games
+router.get('/', async (req, res) => {
+    try {
+        const games = await Game.find();
+        res.json(games);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Create new game
+router.post('/', async (req, res) => {
+    const { ownerId, title, description } = req.body;
+    const game = new Game({ id: new mongoose.Types.ObjectId().toString(), ownerId, title, description });
+    try {
+        await game.save();
+        res.status(201).json(game);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+// Get game details
+router.get('/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const game = await Game.findOne({ id });
+        if (!game) return res.status(404).json({ error: 'Game not found!' });
+        res.json(game);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+module.exports = router;
+
+// ═══ src/components/Dashboard.jsx ═══
+import React, { useEffect, useState } from 'react';
+import axios from 'axios';
+import GameList from './GameList';
+import PlayerStatistics from './PlayerStatistics';
+
+const Dashboard = () => {
+    const [games, setGames] = useState([]);
+    const [error, setError] = useState('');
+
+    useEffect(() => {
+        const fetchGames = async () => {
+            try {
+                const response = await axios.get('/api/games');
+                setGames(response.data);
+            } catch (e) {
+                setError('Error fetching games');
+            }
+        };
+        fetchGames();
+    }, []);
+
+    return (
+        <div className="p-4">
+            <h1 className="text-2xl font-bold">Dashboard</h1>
+            {error && <p className="text-red-500">{error}</p>}
+            <GameList games={games} />
+            <PlayerStatistics />
+        </div>
+    );
+};
+
+export default Dashboard;
+
+// ═══ src/components/GameList.jsx ═══
+import React from 'react';
+
+const GameList = ({ games }) => {
+    return (
+        <div className="mt-4">
+            <h2 className="text-xl font-semibold">Available Games</h2>
+            <ul className="list-disc ml-4">
+                {games.map(game => (
+                    <li key={game.id} className="py-1">{game.title}</li>
+                ))}
+            </ul>
+        </div>
+    );
+};
+
+export default GameList;
+
+// ═══ src/components/PlayerStatistics.jsx ═══
+import React from 'react';
+
+const PlayerStatistics = () => {
+    // Placeholder for player statistics data
+    const stats = [{ gameId: '1', score: 100 }, { gameId: '2', score: 250 }];
+
+    return (
+        <div className="mt-4">
+            <h2 className="text-xl font-semibold">Player Statistics</h2>
+            <ul className="list-disc ml-4">
+                {stats.map(stat => (
+                    <li key={stat.gameId} className="py-1">Game ID: {stat.gameId} - Score: {stat.score}</li>
+                ))}
+            </ul>
+        </div>
+    );
+};
+
+export default PlayerStatistics;
+
+// ═══ src/index.js ═══
+require('dotenv').config();
+const express = require('express');
+const mongoose = require('mongoose');
+const userRoutes = require('./routes/userRoutes');
+const gameRoutes = require('./routes/gameRoutes');
+const cors = require('cors');
+
+const app = express();
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// Routes
+app.use('/api/users', userRoutes);
+app.use('/api/games', gameRoutes);
+
+// Connect to MongoDB and start server
+const PORT = process.env.PORT || 5000;
+mongoose.connect(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+    .then(() => {
+        app.listen(PORT, () => {
+            console.log(`Server running on http://localhost:${PORT}`);
+        });
+    })
+    .catch(err => console.error(err));
+
+// ═══ src/models/User.js ═══
+const mongoose = require('mongoose');
+
+const userSchema = new mongoose.Schema({
+    id: { type: String, required: true },
+    username: { type: String, required: true },
+    email: { type: String, required: true },
+    passwordHash: { type: String, required: true },
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now }
+});
+
+module.exports = mongoose.model('User', userSchema);
+
+// ═══ src/models/Game.js ═══
+const mongoose = require('mongoose');
+
+const gameSchema = new mongoose.Schema({
+    id: { type: String, required: true },
+    ownerId: { type: String, required: true },
+    title: { type: String, required: true },
+    description: { type: String },
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now }
+});
+
+module.exports = mongoose.model('Game', gameSchema);
+
+// ═══ src/models/GameInstance.js ═══
+const mongoose = require('mongoose');
+
+const gameInstanceSchema = new mongoose.Schema({
+    id: { type: String, required: true },
+    gameId: { type: String, required: true },
+    hostId: { type: String, required: true },
+    playerCount: { type: Number },
+    createdAt: { type: Date, default: Date.now }
+});
+
+module.exports = mongoose.model('GameInstance', gameInstanceSchema);
+
+// ═══ src/models/PlayerStatistics.js ═══
+const mongoose = require('mongoose');
+
+const playerStatisticsSchema = new mongoose.Schema({
+    id: { type: String, required: true },
+    userId: { type: String, required: true },
+    gameId: { type: String, required: true },
+    score: { type: Number },
+    createdAt: { type: Date, default: Date.now }
+});
+
+module.exports = mongoose.model('PlayerStatistics', playerStatisticsSchema);
+
+// ═══ src/routes/gameRoutes.js ═══
+const express = require('express');
+const Game = require('../models/Game');
+const router = express.Router();
+
+// Create a new game
+router.post('/', async (req, res) => {
+    const game = new Game(req.body);
+    try {
+        await game.save();
+        res.status(201).json(game);
+    } catch (error) {
+        res.status(400).json({ message: error.message });
+    }
+});
+
+// Get all games
+router.get('/', async (req, res) => {
+    try {
+        const games = await Game.find();
+        res.json(games);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// Get a specific game by ID
+router.get('/:id', async (req, res) => {
+    try {
+        const game = await Game.findById(req.params.id);
+        if (!game) return res.status(404).send('Game not found');
+        res.json(game);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// Start a new game instance
+router.post('/:id/start', async (req, res) => {
+    // Logic to create a game instance should go here
+    res.send('Game instance started!');
+});
+
+// Get all instances of a specific game
+router.get('/:id/instances', async (req, res) => {
+    // Logic to retrieve game instances should go here
+    res.send('Game instances retrieved!');
+});
+
+module.exports = router;
+
+// ═══ src/components/GameList.jsx ═══
+import React, { useEffect, useState } from 'react';
+
+const GameList = () => {
+    const [games, setGames] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchGames = async () => {
+            const response = await fetch('/api/games');
+            const data = await response.json();
+            setGames(data);
+            setLoading(false);
+        };
+        fetchGames();
+    }, []);
+
+    if (loading) {
+        return <div>Loading...</div>;
+    }
+
+    return (
+        <div className="flex flex-col space-y-4">
+            {games.map(game => (
+                <div key={game.id} className="p-4 border rounded shadow">
+                    <h2 className="text-xl font-bold">{game.title}</h2>
+                    <p>{game.description}</p>
+                </div>
+            ))}
+        </div>
+    );
+};
+
+export default GameList;
+
+// ═══ src/components/GameDetail.jsx ═══
+import React, { useEffect, useState } from 'react';
+
+const GameDetail = ({ gameId }) => {
+    const [game, setGame] = useState(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchGame = async () => {
+            const response = await fetch(`/api/games/${gameId}`);
+            const data = await response.json();
+            setGame(data);
+            setLoading(false);
+        };
+        fetchGame();
+    }, [gameId]);
+
+    const handleStartGame = async () => {
+        await fetch(`/api/games/${gameId}/start`, { method: 'POST' });
+        // Handle successful start, maybe redirect or update state.
+    };
+
+    if (loading) return <div>Loading...</div>;
+
+    return (
+        <div className="p-4 border rounded shadow">
+            <h1 className="text-2xl font-bold">{game.title}</h1>
+            <p>{game.description}</p>
+            <button onClick={handleStartGame} className="mt-4 bg-blue-500 text-white py-2 px-4 rounded">
+                Start Game
+            </button>
+        </div>
+    );
+};
+
+export default GameDetail;
+
+// ═══ src/index.js ═══
+const express = require('express');
+const mongoose = require('mongoose');
+const gameRoutes = require('./routes/gameRoutes');
+const app = express();
+const PORT = process.env.PORT || 5000;
+
+// Middleware
+app.use(express.json());
+
+// MongoDB connection
+mongoose.connect('mongodb://localhost/project_blueprint', { useNewUrlParser: true, useUnifiedTopology: true })
+    .then(() => console.log('MongoDB connected'))
+    .catch(err => console.log(err));
+
+// Routes
+app.use('/api/games', gameRoutes);
+
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+});
+
+// ═══ src/models/User.js ═══
+const mongoose = require('mongoose');
+
+// User schema definition
+const userSchema = new mongoose.Schema({
+    id: { type: String, required: true, unique: true },
+    username: { type: String, required: true, unique: true },
+    email: { type: String, required: true, unique: true },
+    passwordHash: { type: String, required: true },
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now }
+});
+
+module.exports = mongoose.model('User', userSchema);
+
+// ═══ src/models/Game.js ═══
+const mongoose = require('mongoose');
+
+// Game schema definition
+const gameSchema = new mongoose.Schema({
+    id: { type: String, required: true, unique: true },
+    ownerId: { type: String, required: true },
+    title: { type: String, required: true },
+    description: { type: String },
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now }
+});
+
+module.exports = mongoose.model('Game', gameSchema);
+
+// ═══ src/models/GameInstance.js ═══
+const mongoose = require('mongoose');
+
+// GameInstance schema definition
+const gameInstanceSchema = new mongoose.Schema({
+    id: { type: String, required: true, unique: true },
+    gameId: { type: String, required: true },
+    hostId: { type: String, required: true },
+    playerCount: { type: Number },
+    createdAt: { type: Date, default: Date.now }
+});
+
+module.exports = mongoose.model('GameInstance', gameInstanceSchema);
+
+// ═══ src/models/PlayerStatistics.js ═══
+const mongoose = require('mongoose');
+
+// PlayerStatistics schema definition
+const playerStatisticsSchema = new mongoose.Schema({
+    id: { type: String, required: true, unique: true },
+    userId: { type: String, required: true },
+    gameId: { type: String, required: true },
+    score: { type: Number },
+    createdAt: { type: Date, default: Date.now }
+});
+
+module.exports = mongoose.model('PlayerStatistics', playerStatisticsSchema);
+
+// ═══ src/routes/userRoutes.js ═══
+const express = require('express');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+const User = require('../models/User');
+
+const router = express.Router();
+
+// User registration route
+router.post('/register', async (req, res) => {
+    const { username, email, password } = req.body;
+    const hashedPassword = await bcrypt.hash(password, 10);
+    try {
+        const newUser = await User.create({
+            username,
+            email,
+            passwordHash: hashedPassword,
+            id: mongoose.Types.ObjectId().toString()
+        });
+        res.status(201).json({ message: 'User created', userId: newUser.id });
+    } catch (error) {
+        res.status(400).json({ error: 'Error creating user', details: error });
+    }
+});
+
+// User login route
+router.post('/login', async (req, res) => {
+    const { email, password } = req.body;
+    try {
+        const user = await User.findOne({ email });
+        if (user && await bcrypt.compare(password, user.passwordHash)) {
+            const token = jwt.sign({ id: user.id }, 'secret_key'); // Use environment variable for secret
+            return res.status(200).json({ token });
+        }
+        res.status(401).json({ error: 'Invalid credentials' });
+    } catch (error) {
+        res.status(500).json({ error: 'Internal server error', details: error });
+    }
+});
+
+module.exports = router;
+
+// ═══ src/routes/gameRoutes.js ═══
+const express = require('express');
+const Game = require('../models/Game');
+const GameInstance = require('../models/GameInstance');
+
+const router = express.Router();
+
+// Create a new game route
+router.post('/', async (req, res) => {
+    const { ownerId, title, description } = req.body;
+    try {
+        const newGame = await Game.create({
+            ownerId,
+            title,
+            description,
+            id: mongoose.Types.ObjectId().toString()
+        });
+        res.status(201).json(newGame);
+    } catch (error) {
+        res.status(400).json({ error: 'Error creating game', details: error });
+    }
+});
+
+// Get all games route
+router.get('/', async (req, res) => {
+    try {
+        const games = await Game.find();
+        res.status(200).json(games);
+    } catch (error) {
+        res.status(500).json({ error: 'Internal server error', details: error });
+    }
+});
+
+// Get a game by id
+router.get('/:id', async (req, res) => {
+    try {
+        const game = await Game.findById(req.params.id);
+        if (!game) return res.status(404).json({ error: 'Game not found' });
+        res.status(200).json(game);
+    } catch (error) {
+        res.status(500).json({ error: 'Internal server error', details: error });
+    }
+});
+
+// Start a game instance
+router.post('/:id/start', async (req, res) => {
+    const { hostId } = req.body;
+    try {
+        const newInstance = await GameInstance.create({
+            gameId: req.params.id,
+            hostId,
+            id: mongoose.Types.ObjectId().toString(),
+            playerCount: 0
+        });
+        res.status(201).json(newInstance);
+    } catch (error) {
+        res.status(400).json({ error: 'Error starting game instance', details: error });
+    }
+});
+
+module.exports = router;
+
+// ═══ src/components/UserRegistrationForm.jsx ═══
+import React, { useState } from 'react';
+import axios from 'axios';
+
+const UserRegistrationForm = () => {
+    const [username, setUsername] = useState('');
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        try {
+            await axios.post('/api/users/register', { username, email, password });
+            alert('Registration successful!');
+        } catch (error) {
+            alert('Error registering user');
+        }
+    };
+
+    return (
+        <form onSubmit={handleSubmit} className="space-y-4">
+            <input type="text" value={username} onChange={e => setUsername(e.target.value)} placeholder="Username" required className="border p-2 w-full" />
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Email" required className="border p-2 w-full" />
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" required className="border p-2 w-full" />
+            <button type="submit" className="bg-blue-500 text-white p-2 w-full">Register</button>
+        </form>
+    );
+};
+
+export default UserRegistrationForm;
+
+// ═══ src/components/UserLoginForm.jsx ═══
+import React, { useState } from 'react';
+import axios from 'axios';
+
+const UserLoginForm = () => {
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        try {
+            const response = await axios.post('/api/users/login', { email, password });
+            localStorage.setItem('token', response.data.token);
+            alert('Login successful!');
+        } catch (error) {
+            alert('Error logging in');
+        }
+    };
+
+    return (
+        <form onSubmit={handleSubmit} className="space-y-4">
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="Email" required className="border p-2 w-full" />
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" required className="border p-2 w-full" />
+            <button type="submit" className="bg-blue-500 text-white p-2 w-full">Login</button>
+        </form>
+    );
+};
+
+export default UserLoginForm;
+
+// ═══ src/components/GameList.jsx ═══
+import React, { useEffect, useState } from 'react';
+import axios from 'axios';
+
+const GameList = () => {
+    const [games, setGames] = useState([]);
+
+    useEffect(() => {
+        const fetchGames = async () => {
+            try {
+                const response = await axios.get('/api/games');
+                setGames(response.data);
+            } catch (error) {
+                alert('Error fetching games');
+            }
+        };
+        fetchGames();
+    }, []);
+
+    return (
+        <div className="space-y-4">
+            {games.map(game => (
+                <div key={game.id} className="border p-4">{game.title}</div>
+            ))}
+        </div>
+    );
+};
+
+export default GameList;
+
+// ═══ src/components/GameDetail.jsx ═══
+import React, { useEffect, useState } from 'react';
+import axios from 'axios';
+import { useParams } from 'react-router-dom';
+
+const GameDetail = () => {
+    const { id } = useParams();
+    const [game, setGame] = useState(null);
+
+    useEffect(() => {
+        const fetchGame = async () => {
+            try {
+                const response = await axios.get(`/api/games/${id}`);
+                setGame(response.data);
+            } catch (error) {
+                alert('Error fetching game details');
+            }
+        };
+        fetchGame();
+    }, [id]);
+
+    const startGame = async () => {
+        try {
+            await axios.post(`/api/games/${id}/start`, { hostId: 'someHostId' });
+            alert('Game started!');
+        } catch (error) {
+            alert('Error starting the game');
+        }
+    };
+
+    if (!game) return <p>Loading...</p>;
+
+    return (
+        <div className="p-4">
+            <h1 className="text-2xl font-bold">{game.title}</h1>
+            <p>{game.description}</p>
+            <button onClick={startGame} className="bg-green-500 text-white p-2">Start Game</button>
+        </div>
+    );
+};
+
+export default GameDetail;
+
+// ═══ src/index.js ═══
+const express = require('express');
+const mongoose = require('mongoose');
+const userRoutes = require('./routes/userRoutes');
+const gameRoutes = require('./routes/gameRoutes');
+
+const app = express();
+const port = process.env.PORT || 5000;
+
+app.use(express.json());
+
+// MongoDB connection
+mongoose.connect('mongodb://localhost:27017/projectblueprint', { useNewUrlParser: true, useUnifiedTopology: true })
+    .then(() => console.log('MongoDB connected'))
+    .catch(err => console.error('MongoDB connection error:', err));
+
+app.use('/api/users', userRoutes);
+app.use('/api/games', gameRoutes);
+
+app.listen(port, () => {
+    console.log(`Server running at http://localhost:${port}`);
+});
+
+// ═══ tailwind.config.js ═══
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  content: ["./src/**/*.{js,jsx,ts,tsx}", "./public/index.html"],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+};
+
+// ═══ package.json ═══
+{
+  "name": "project-blueprint",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  },
+  "dependencies": {
+    "axios": "^0.21.1",
+    "bcrypt": "^5.0.1",
+    "express": "^4.17.1",
+    "jsonwebtoken": "^8.5.1",
+    "mongoose": "^5.10.9"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.7"
+  }
+}
+
+// ═══ src/routes/chatRoutes.js ═══
+const express = require('express');
+const router = express.Router();
+const ChatController = require('../controllers/chatController');
+
+// Send a message to chat
+router.post('/api/games/:gameId/chat', ChatController.sendMessage);
+
+// Get chat history for a specific game
+router.get('/api/games/:gameId/chat', ChatController.getChatHistory);
+
+module.exports = router;
+
+// ═══ src/controllers/chatController.js ═══
+const Chat = require('../models/Chat');
+
+exports.sendMessage = async (req, res) => {
+    try {
+        const { gameId } = req.params;
+        const { userId, message } = req.body;
+        const chatMessage = await Chat.create({ gameId, userId, message, createdAt: new Date() });
+        return res.status(201).json(chatMessage);
+    } catch (error) {
+        return res.status(500).json({ error: 'Unable to send message' });
+    }
+};
+
+exports.getChatHistory = async (req, res) => {
+    try {
+        const { gameId } = req.params;
+        const chatHistory = await Chat.find({ gameId }).sort({ createdAt: 1 });
+        return res.status(200).json(chatHistory);
+    } catch (error) {
+        return res.status(500).json({ error: 'Unable to retrieve chat history' });
+    }
+};
+
+// ═══ src/models/Chat.js ═══
+const mongoose = require('mongoose');
+
+const chatSchema = new mongoose.Schema({
+    gameId: { type: String, required: true },
+    userId: { type: String, required: true },
+    message: { type: String, required: true },
+    createdAt: { type: Date, required: true }
+});
+
+module.exports = mongoose.model('Chat', chatSchema);
+
+// ═══ src/socket/chatSocket.js ═══
+const socketIo = require('socket.io');
+const Chat = require('../models/Chat');
+
+module.exports = (server) => {
+    const io = socketIo(server);
+    
+    io.on('connection', (socket) => {
+        console.log('New client connected');
+        const gameId = socket.handshake.query.gameId;
+        
+        // Listen for incoming messages
+        socket.on('sendMessage', async ({ userId, message }) => {
+            const chatMessage = await Chat.create({ gameId, userId, message, createdAt: new Date() });
+            io.to(gameId).emit('newMessage', chatMessage);
+        });
+        
+        // Join the room for the specific game
+        socket.join(gameId);
+
+        socket.on('disconnect', () => {
+            console.log('Client disconnected');
+        });
+    });
+
+    return io;
+};
+
+// ═══ src/components/GameChat.js ═══
+import React, { useEffect, useState } from 'react';
+import { io } from 'socket.io-client';
+
+const GameChat = ({ gameId, userId }) => {
+    const [messages, setMessages] = useState([]);
+    const [message, setMessage] = useState('');
+    const socket = io(process.env.REACT_APP_API_URL, { query: { gameId } });
+
+    useEffect(() => {
+        socket.on('newMessage', (newMessage) => {
+            setMessages((prevMessages) => [...prevMessages, newMessage]);
+        });
+
+        // Fetch chat history on mount
+        const fetchChatHistory = async () => {
+            const response = await fetch(`/api/games/${gameId}/chat`);
+            const chatHistory = await response.json();
+            setMessages(chatHistory);
+        };
+        fetchChatHistory();
+
+        return () => { socket.disconnect(); };
+    }, [gameId, socket]);
+
+    const sendChatMessage = async (e) => {
+        e.preventDefault();
+        socket.emit('sendMessage', { userId, message });
+        setMessage('');
+    };
+
+    return (
+        <div className="p-4 border rounded-md bg-gray-50">
+            <div className="mb-2 h-48 overflow-y-auto">
+                {messages.map((msg, index) => (
+                    <div key={index}>[{new Date(msg.createdAt).toLocaleTimeString()}] {msg.userId}: {msg.message}</div>
+                ))}
+            </div>
+            <form onSubmit={sendChatMessage} className="flex">
+                <input
+                    type="text"
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    className="flex-grow mr-2 p-2 border border-gray-300 rounded-md"
+                    placeholder="Type your message..."
+                />
+                <button type="submit" className="px-4 bg-blue-500 text-white rounded-md">Send</button>
+            </form>
+        </div>
+    );
+};
+
+export default GameChat;
+
+// ═══ src/models/User.js ═══
+const mongoose = require('mongoose');
+
+const userSchema = new mongoose.Schema({
+    id: { type: String, required: true, unique: true },
+    username: { type: String, required: true, unique: true },
+    email: { type: String, required: true, unique: true },
+    passwordHash: { type: String, required: true },
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now },
+    friends: [{ type: String }], // Array of user ids of friends
+    activity: [{ type: String }] // Array of activity log strings
+});
+
+module.exports = mongoose.model('User', userSchema);
+
+// ═══ src/routes/friendRoutes.js ═══
+const express = require('express');
+const router = express.Router();
+const User = require('../models/User');
+
+// Add a Friend
+router.post('/:userId/friends', async (req, res) => {
+    const { friendId } = req.body;
+    try {
+        await User.findByIdAndUpdate(req.params.userId, { $addToSet: { friends: friendId } });
+        res.status(200).json({ message: 'Friend added successfully.' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error adding friend.', error });
+    }
+});
+
+// Get Friends List
+router.get('/:userId/friends', async (req, res) => {
+    try {
+        const user = await User.findById(req.params.userId).populate('friends');
+        res.status(200).json(user.friends);
+    } catch (error) {
+        res.status(500).json({ message: 'Error retrieving friends.', error });
+    }
+});
+
+// Invite Friends to a Game
+router.post('/:userId/invite', async (req, res) => {
+    const { friendId, gameId } = req.body;
+    try {
+        // This could trigger an email or a notification to the friend
+        // For now, we will just return a message
+        res.status(200).json({ message: `Invite sent to ${friendId} for game ${gameId}.` });
+    } catch (error) {
+        res.status(500).json({ message: 'Error sending invite.', error });
+    }
+});
+
+module.exports = router;
+
+// ═══ src/components/FriendList.js ═══
+import React, { useEffect, useState } from 'react';
+import axios from 'axios';
+
+const FriendList = ({ userId }) => {
+    const [friends, setFriends] = useState([]);
+    const [error, setError] = useState(null);
+
+    useEffect(() => {
+        const fetchFriends = async () => {
+            try {
+                const response = await axios.get(`/api/users/${userId}/friends`);
+                setFriends(response.data);
+            } catch (error) {
+                setError('Error fetching friends.');
+            }
+        };
+        fetchFriends();
+    }, [userId]);
+
+    return (
+        <div className="friend-list">
+            <h2 className="text-lg font-bold">Your Friends</h2>
+            {error && <p className="text-red-500">{error}</p>}
+            <ul className="list-disc ml-5">
+                {friends.map(friend => (
+                    <li key={friend.id} className="py-1">{friend.username}</li>
+                ))}
+            </ul>
+        </div>
+    );
+};
+
+export default FriendList;
+
+// ═══ src/components/UserProfile.js ═══
+import React, { useState } from 'react';
+import axios from 'axios';
+import FriendList from './FriendList';
+
+const UserProfile = ({ userId }) => {
+    const [friendId, setFriendId] = useState('');
+
+    const addFriend = async () => {
+        try {
+            await axios.post(`/api/users/${userId}/friends`, { friendId });
+            // Optionally fetch updated friends list here
+        } catch (error) {
+            console.error('Error adding friend:', error);
+        }
+    };
+
+    return (
+        <div className="user-profile">
+            <h1 className="text-2xl font-bold">User Profile</h1>
+            <input
+                type="text"
+                placeholder="Friend User ID"
+                onChange={(e) => setFriendId(e.target.value)}
+                className="border p-2"
+            />
+            <button onClick={addFriend} className="bg-blue-500 text-white px-4 py-2 rounded">
+                Add Friend
+            </button>
+            <FriendList userId={userId} />
+        </div>
+    );
+};
+
+export default UserProfile;
