@@ -24,13 +24,13 @@ jobs:
 
     - name: Make Gradle Executable
       run: chmod +x ./gradlew
-      continue-on-error: true
 
     - name: Build Debug APK
-      run: ./gradlew assembleDebug || echo "Build failed, check code structure"
+      run: ./gradlew assembleDebug
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: app-debug
         path: app/build/outputs/apk/debug/*.apk
+        if-no-files-found: error
